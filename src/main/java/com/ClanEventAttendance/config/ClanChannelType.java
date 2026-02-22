@@ -32,8 +32,7 @@ import lombok.RequiredArgsConstructor;
 
 @Getter
 @RequiredArgsConstructor
-public enum ClanChannelType
-{
+public enum ClanChannelType {
 	FRIENDS_CHAT("Friends Chat", 0),
 	CLAN_CHAT("Clan Chat", 1),
 	BOTH_CHATS("Both Chats", 2);
@@ -42,8 +41,7 @@ public enum ClanChannelType
 	private final int value;
 
 	@Override
-	public String toString()
-	{
+	public String toString() {
 		return name;
 	}
 }

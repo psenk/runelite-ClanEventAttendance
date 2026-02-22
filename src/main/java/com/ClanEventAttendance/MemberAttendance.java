@@ -31,8 +31,7 @@ import lombok.AllArgsConstructor;
 import net.runelite.api.Player;
 
 @AllArgsConstructor
-class MemberAttendance
-{
+class MemberAttendance {
     public Player member;
     public Integer ticksLate;
     public Integer tickActivityStarted;

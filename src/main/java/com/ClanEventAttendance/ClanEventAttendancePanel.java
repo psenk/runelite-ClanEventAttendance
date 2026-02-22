@@ -39,8 +39,7 @@ import java.awt.datatransfer.*;
 import java.awt.image.BufferedImage;
 
 @Slf4j
-class ClanEventAttendancePanel extends PluginPanel
-{
+class ClanEventAttendancePanel extends PluginPanel {
     private final JButton startButton = new JButton();
     private final JButton copyTextButton = new JButton();
     private final JLabel textLabel = new JLabel();
@@ -52,9 +51,7 @@ class ClanEventAttendancePanel extends PluginPanel
     private static final String BTN_STOP_TEXT = "Stop Event";
     private static final String BTN_COPY_TEXT_TEXT = "Copy to Clipboard";
 
-
-    void init(ClanEventAttendanceConfig config, ClanEventAttendancePlugin plugin)
-    {
+    void init(ClanEventAttendanceConfig config, ClanEventAttendancePlugin plugin) {
         getParent().setLayout(new BorderLayout());
         getParent().add(this, BorderLayout.CENTER);
 
@@ -88,77 +85,58 @@ class ClanEventAttendancePanel extends PluginPanel
 
         add(topButtonsPanel, BorderLayout.NORTH);
         add(textPanel, BorderLayout.CENTER);
-        if (config.topCopyButton())
-        {
+        if (config.topCopyButton()) {
             topButtonsPanel.add(copyTextButton, BorderLayout.SOUTH);
-        }
-        else
-        {
+        } else {
             bottomButtonsPanel.add(copyTextButton, BorderLayout.CENTER);
             add(bottomButtonsPanel, BorderLayout.SOUTH);
         }
 
-        if (startButton.getActionListeners().length > 0)
-        {
+        if (startButton.getActionListeners().length > 0) {
             startButton.removeActionListener(startButton.getActionListeners()[0]);
         }
 
-        startButton.addActionListener(e ->
-        {
-            if (plugin.eventRunning)
-            {
-                if (config.confirmationMessages())
-                {
+        startButton.addActionListener(e -> {
+            if (plugin.eventRunning) {
+                if (config.confirmationMessages()) {
                     final int result = JOptionPane.showOptionDialog(topButtonsPanel,
                             "Are you sure you want to TERMINATE the event?\nYou won't be able to restart it.",
                             "Are you sure?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE,
-                            null, new String[]{"Yes", "No"}, "No");
+                            null, new String[] { "Yes", "No" }, "No");
 
-                    if(result == JOptionPane.YES_OPTION){
+                    if (result == JOptionPane.YES_OPTION) {
                         plugin.stopEvent();
                     }
-                }
-                else
-                {
+                } else {
                     plugin.stopEvent();
                 }
-            }
-            else
-            {
-                if (config.confirmationMessages())
-                {
+            } else {
+                if (config.confirmationMessages()) {
                     final int result = JOptionPane.showOptionDialog(topButtonsPanel,
                             "Are you sure you want to START a new event?\nThis will delete current data.",
                             "Are you sure?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE,
-                            null, new String[]{"Yes", "No"}, "No");
+                            null, new String[] { "Yes", "No" }, "No");
 
-                    if (result == JOptionPane.YES_OPTION)
-                    {
+                    if (result == JOptionPane.YES_OPTION) {
                         plugin.startEvent();
                     }
-                }
-                else
-                {
+                } else {
                     plugin.startEvent();
                 }
             }
         });
 
-        copyTextButton.addActionListener(e ->
-        {
+        copyTextButton.addActionListener(e -> {
             String text = textLabel.getText();
             Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
 
-            if (config.outputFormat() == OutputFormat.PNG)
-            {
+            if (config.outputFormat() == OutputFormat.PNG) {
                 BufferedImage image = createImage(textLabel);
                 TransferableImage trans = new TransferableImage(image);
 
                 // Copied PNG image to clipboard
                 clipboard.setContents(trans, null);
-            }
-            else
-            {
+            } else {
                 text = text.replaceAll("(<br/>)", "\n");
                 text = text.replaceAll("<[^>]*>", "");
                 StringSelection stringSelection = new StringSelection(text);
@@ -171,13 +149,11 @@ class ClanEventAttendancePanel extends PluginPanel
         updatePanel(config, plugin);
     }
 
-    void setText(String data)
-    {
+    void setText(String data) {
         textLabel.setText(data);
     }
 
-    void updatePanel(ClanEventAttendanceConfig config, ClanEventAttendancePlugin plugin)
-    {
+    void updatePanel(ClanEventAttendanceConfig config, ClanEventAttendancePlugin plugin) {
 
         startButton.setText(plugin.eventRunning ? BTN_STOP_TEXT : BTN_START_TEXT);
         copyTextButton.setEnabled(!config.blockCopyButton() || !plugin.eventRunning);
@@ -198,33 +174,29 @@ class ClanEventAttendancePanel extends PluginPanel
 
         Image i;
 
-        public TransferableImage( Image i ) {
+        public TransferableImage(Image i) {
             this.i = i;
         }
 
-        public Object getTransferData( DataFlavor flavor )
-                throws UnsupportedFlavorException
-        {
-            if ( flavor.equals( DataFlavor.imageFlavor ) && i != null ) {
+        public Object getTransferData(DataFlavor flavor)
+                throws UnsupportedFlavorException {
+            if (flavor.equals(DataFlavor.imageFlavor) && i != null) {
                 return i;
-            }
-            else {
-                throw new UnsupportedFlavorException( flavor );
+            } else {
+                throw new UnsupportedFlavorException(flavor);
             }
         }
 
         public DataFlavor[] getTransferDataFlavors() {
-            DataFlavor[] flavors = new DataFlavor[ 1 ];
-            flavors[ 0 ] = DataFlavor.imageFlavor;
+            DataFlavor[] flavors = new DataFlavor[1];
+            flavors[0] = DataFlavor.imageFlavor;
             return flavors;
         }
 
-        public boolean isDataFlavorSupported( DataFlavor flavor ) {
+        public boolean isDataFlavorSupported(DataFlavor flavor) {
             DataFlavor[] flavors = getTransferDataFlavors();
-            for (DataFlavor dataFlavor : flavors)
-            {
-                if (flavor.equals(dataFlavor))
-                {
+            for (DataFlavor dataFlavor : flavors) {
+                if (flavor.equals(dataFlavor)) {
                     return true;
                 }
             }

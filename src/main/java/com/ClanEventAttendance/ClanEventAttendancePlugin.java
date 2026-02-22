@@ -29,6 +29,10 @@ package com.ClanEventAttendance;
 
 import com.ClanEventAttendance.config.ClanChannelType;
 import com.ClanEventAttendance.config.OutputFormat;
+import java.io.File;
+import java.io.PrintWriter;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import com.google.inject.Provides;
 import java.util.ArrayList;
 import java.util.Map;
@@ -57,17 +61,14 @@ import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.util.ImageUtil;
 import net.runelite.client.util.Text;
+import net.runelite.client.RuneLite;
 import java.awt.image.BufferedImage;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
-@PluginDescriptor(
-	name = "Clan Event Attendance",
-	description = "Tracks clan attendance and time spent at events.",
-	tags = {"clan", "event", "attendance", "time"}
-)
-public class ClanEventAttendancePlugin extends Plugin
-{
+@PluginDescriptor(name = "Clan Event Attendance", description = "Tracks clan attendance and time spent at events.", tags = {
+		"clan", "event", "attendance", "time" })
+public class ClanEventAttendancePlugin extends Plugin {
 	@Inject
 	private ClientToolbar clientToolbar;
 
@@ -93,22 +94,22 @@ public class ClanEventAttendancePlugin extends Plugin
 	private boolean FC_Valid;
 
 	private int ScanDelay;
+	private int lastAutosaveTick = 0;
 
 	private final ArrayList<String> ClanMembers = new ArrayList<>();
+
+	private File currentEventFile;
 
 	static final String CONFIG_GROUP = "ClanEventAttendance";
 
 	@Provides
-	ClanEventAttendanceConfig provideConfig(ConfigManager configManager)
-	{
+	ClanEventAttendanceConfig provideConfig(ConfigManager configManager) {
 		return configManager.getConfig(ClanEventAttendanceConfig.class);
 	}
 
 	@Subscribe
-	public void onGameStateChanged(GameStateChanged event)
-	{
-		switch (event.getGameState())
-		{
+	public void onGameStateChanged(GameStateChanged event) {
+		switch (event.getGameState()) {
 			case HOPPING:
 			case LOGGING_IN:
 				ScanDelay = 1;
@@ -116,8 +117,7 @@ public class ClanEventAttendancePlugin extends Plugin
 	}
 
 	@Override
-	protected void startUp()
-	{
+	protected void startUp() {
 		panel = injector.getInstance(ClanEventAttendancePanel.class);
 
 		final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "panel_icon.png");
@@ -138,17 +138,15 @@ public class ClanEventAttendancePlugin extends Plugin
 	}
 
 	@Override
-	protected void shutDown()
-	{
+	protected void shutDown() {
 		clientToolbar.removeNavigation(navButton);
 
 		attendanceBuffer.clear();
 		eventRunning = false;
 	}
 
-	public void startEvent()
-	{
-		//log.info("startEvent");
+	public void startEvent() {
+		// log.info("startEvent");
 
 		attendanceBuffer.clear();
 
@@ -156,29 +154,48 @@ public class ClanEventAttendancePlugin extends Plugin
 		eventRunning = true;
 
 		ScanDelay = 1;
+		lastAutosaveTick = client.getTickCount();
 
 		panel.updatePanel(config, this);
 		panel.setText("");
+
+		if (config.saveLocally()) {
+			File dir = new File(RuneLite.RUNELITE_DIR, "clan-event-attendance");
+			if (!dir.exists()) {
+				dir.mkdirs();
+			}
+			String timestamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
+			currentEventFile = new File(dir, "attendance-" + timestamp + ".txt");
+		} else {
+			currentEventFile = null;
+		}
 	}
 
-	public void stopEvent()
-	{
-		//log.info("stopEvent");
+	public void stopEvent() {
+		// log.info("stopEvent");
 
-		for (String key : attendanceBuffer.keySet())
-		{
+		for (String key : attendanceBuffer.keySet()) {
 			compileTicks(key);
 		}
+
+		if (config.saveLocally()) {
+			saveAttendanceToFile();
+		}
+
+		currentEventFile = null;
 
 		eventStoppedAt = client.getTickCount();
 		eventRunning = false;
 
 		panel.setText(generateTextData(true));
 		panel.updatePanel(config, this);
+
+		if (config.saveLocally()) {
+			saveAttendanceToFile();
+		}
 	}
 
-	private boolean IsValid(Player player, boolean validateCC, boolean validateFC)
-	{
+	private boolean IsValid(Player player, boolean validateCC, boolean validateFC) {
 		if (validateCC && CC_Valid && player.isClanMember())
 			return true;
 
@@ -189,8 +206,7 @@ public class ClanEventAttendancePlugin extends Plugin
 	}
 
 	@Subscribe
-	public void onPlayerSpawned(PlayerSpawned event)
-	{
+	public void onPlayerSpawned(PlayerSpawned event) {
 		if (!eventRunning)
 			return;
 
@@ -201,15 +217,14 @@ public class ClanEventAttendancePlugin extends Plugin
 
 		final String playerName = player.getName();
 
-		//log.info("Player spawned: " + playerName);
+		// log.info("Player spawned: " + playerName);
 
 		addPlayer(player);
 		unpausePlayer(playerName);
 	}
 
 	@Subscribe
-	public void onPlayerDespawned(PlayerDespawned event)
-	{
+	public void onPlayerDespawned(PlayerDespawned event) {
 		if (!eventRunning)
 			return;
 
@@ -217,7 +232,7 @@ public class ClanEventAttendancePlugin extends Plugin
 		final String playerName = player.getName();
 		final String playerKey = nameToKey(player.getName());
 
-		//log.info("Player despawned: " + playerName);
+		// log.info("Player despawned: " + playerName);
 
 		if (!attendanceBuffer.containsKey(playerKey))
 			return;
@@ -227,26 +242,23 @@ public class ClanEventAttendancePlugin extends Plugin
 	}
 
 	@Subscribe
-	public void onClanChannelChanged(ClanChannelChanged event)
-	{
+	public void onClanChannelChanged(ClanChannelChanged event) {
 		ClanMembers.clear();
 
-		if (event.getClanChannel() == null)
-		{
-			//log.info("onClanChannelChanged, null");
+		if (event.getClanChannel() == null) {
+			// log.info("onClanChannelChanged, null");
 			return;
 		}
-		//else
-		//{
-		//	log.info("onClanChannelChanged, " + event.getClanChannel());
-		//}
+		// else
+		// {
+		// log.info("onClanChannelChanged, " + event.getClanChannel());
+		// }
 
 		ScanDelay = 1;
 	}
 
 	@Subscribe
-	public void onClanMemberJoined(ClanMemberJoined event)
-	{
+	public void onClanMemberJoined(ClanMemberJoined event) {
 		if (!eventRunning)
 			return;
 
@@ -256,24 +268,21 @@ public class ClanEventAttendancePlugin extends Plugin
 		final ClanChannelMember member = event.getClanMember();
 		ClanMembers.add(nameToKey(member.getName()));
 
-		//log.info("Member joined: " + member.getName());
+		// log.info("Member joined: " + member.getName());
 
 		if (member.getWorld() != client.getWorld())
 			return;
 
 		final String memberName = member.getName();
 
-
-		for (final Player player : client.getPlayers())
-		{
+		for (final Player player : client.getPlayers()) {
 			if (player == null)
 				continue;
 
 			String playerName = player.getName();
 
 			// If they're the one that joined the cc
-			if (nameToKey(memberName).equals(nameToKey(playerName)))
-			{
+			if (nameToKey(memberName).equals(nameToKey(playerName))) {
 				addPlayer(player);
 				unpausePlayer(playerName);
 				break;
@@ -283,8 +292,7 @@ public class ClanEventAttendancePlugin extends Plugin
 
 	// Does not fire at all when I myself leave a cc
 	@Subscribe
-	public void onClanMemberLeft(ClanMemberLeft event)
-	{
+	public void onClanMemberLeft(ClanMemberLeft event) {
 		if (!eventRunning)
 			return;
 
@@ -294,7 +302,7 @@ public class ClanEventAttendancePlugin extends Plugin
 		final ClanChannelMember member = event.getClanMember();
 		ClanMembers.remove(nameToKey(member.getName()));
 
-		//log.info("Member left: " + member.getName());
+		// log.info("Member left: " + member.getName());
 
 		if (member.getWorld() != client.getWorld())
 			return;
@@ -314,10 +322,10 @@ public class ClanEventAttendancePlugin extends Plugin
 		pausePlayer(memberName);
 	}
 
-	// Fires for every online member when I myself join a cc (including myself, after everyone else)
+	// Fires for every online member when I myself join a cc (including myself,
+	// after everyone else)
 	@Subscribe
-	public void onFriendsChatMemberJoined(FriendsChatMemberJoined event)
-	{
+	public void onFriendsChatMemberJoined(FriendsChatMemberJoined event) {
 		if (!eventRunning)
 			return;
 
@@ -331,16 +339,14 @@ public class ClanEventAttendancePlugin extends Plugin
 
 		final String memberName = member.getName();
 
-		for (final Player player : client.getPlayers())
-		{
+		for (final Player player : client.getPlayers()) {
 			if (player == null)
 				continue;
 
 			String playerName = player.getName();
 
 			// If they're the one that joined the fc
-			if (nameToKey(memberName).equals(nameToKey(playerName)))
-			{
+			if (nameToKey(memberName).equals(nameToKey(playerName))) {
 				addPlayer(player);
 				unpausePlayer(playerName);
 				break;
@@ -350,8 +356,7 @@ public class ClanEventAttendancePlugin extends Plugin
 
 	// Does not fire at all when I myself leave a cc
 	@Subscribe
-	public void onFriendsChatMemberLeft(FriendsChatMemberLeft event)
-	{
+	public void onFriendsChatMemberLeft(FriendsChatMemberLeft event) {
 		if (!eventRunning)
 			return;
 
@@ -378,13 +383,11 @@ public class ClanEventAttendancePlugin extends Plugin
 		pausePlayer(memberName);
 	}
 
-	private void addPlayer(Player player)
-	{
+	private void addPlayer(Player player) {
 		final String playerKey = nameToKey(player.getName());
 
 		// if player is not in the attendance buffer, add it
-		if (!attendanceBuffer.containsKey(playerKey))
-		{
+		if (!attendanceBuffer.containsKey(playerKey)) {
 			MemberAttendance memberAttendance = new MemberAttendance(player,
 					client.getTickCount() - eventStartedAt,
 					client.getTickCount(),
@@ -394,21 +397,19 @@ public class ClanEventAttendancePlugin extends Plugin
 		}
 	}
 
-	private void pausePlayer(String playerName)
-	{
+	private void pausePlayer(String playerName) {
 		final String playerKey = nameToKey(playerName);
 
 		if (!attendanceBuffer.containsKey(playerKey))
 			return;
 
-		//log.info("Player paused: " + playerName);
+		// log.info("Player paused: " + playerName);
 
 		MemberAttendance ma = attendanceBuffer.get(playerKey);
 		ma.isPresent = false;
 	}
 
-	private void unpausePlayer(String playerName)
-	{
+	private void unpausePlayer(String playerName) {
 		final String playerKey = nameToKey(playerName);
 
 		if (!attendanceBuffer.containsKey(playerKey))
@@ -416,7 +417,7 @@ public class ClanEventAttendancePlugin extends Plugin
 
 		MemberAttendance ma = attendanceBuffer.get(playerKey);
 
-		//log.info("Player unpaused: " + playerName);
+		// log.info("Player unpaused: " + playerName);
 
 		if (ma.isPresent)
 			return;
@@ -425,8 +426,7 @@ public class ClanEventAttendancePlugin extends Plugin
 		ma.tickActivityStarted = client.getTickCount();
 	}
 
-	private void compileTicks(String playerName)
-	{
+	private void compileTicks(String playerName) {
 		final String playerKey = nameToKey(playerName);
 
 		if (!attendanceBuffer.containsKey(playerKey))
@@ -443,22 +443,18 @@ public class ClanEventAttendancePlugin extends Plugin
 	}
 
 	@Subscribe
-	public void onGameTick(GameTick gameTick)
-	{
+	public void onGameTick(GameTick gameTick) {
 		if (!eventRunning)
 			return;
 
-		if (ScanDelay == 0)
-		{
+		if (ScanDelay == 0) {
 			ClanMembers.clear();
 
-			if (client.getClanChannel() != null)
-			{
+			if (client.getClanChannel() != null) {
 				client.getClanChannel().getMembers().forEach(member -> ClanMembers.add(nameToKey(member.getName())));
 			}
 
-			for (final Player player : client.getPlayers())
-			{
+			for (final Player player : client.getPlayers()) {
 				if (player == null || !IsValid(player, true, true))
 					continue;
 
@@ -466,35 +462,40 @@ public class ClanEventAttendancePlugin extends Plugin
 				unpausePlayer(player.getName());
 			}
 
-			//log.info("Scanned " + attendanceBuffer.size() + " surrounding players");
+			// log.info("Scanned " + attendanceBuffer.size() + " surrounding players");
 		}
 
-		if (ScanDelay >= 0)
-		{
+		if (ScanDelay >= 0) {
 			--ScanDelay;
 		}
 
-		for (String key : attendanceBuffer.keySet())
-		{
+		for (String key : attendanceBuffer.keySet()) {
 			compileTicks(key);
 		}
 
 		// Update the text area with the collected data
 		panel.setText(generateTextData(false));
+
+		if (config.saveLocally() && config.autosaveInterval() > 0) {
+			long currentTick = client.getTickCount();
+			long ticksPerInterval = config.autosaveInterval() * 100; // 100 ticks per minute (0.6s * 100 = 60s)
+
+			if (currentTick - lastAutosaveTick >= ticksPerInterval) {
+				saveAttendanceToFile();
+				lastAutosaveTick = (int) currentTick;
+			}
+		}
 	}
 
 	@Subscribe
-	public void onConfigChanged(ConfigChanged event)
-	{
-		if (event.getGroup().equals(CONFIG_GROUP))
-		{
+	public void onConfigChanged(ConfigChanged event) {
+		if (event.getGroup().equals(CONFIG_GROUP)) {
 			initConfig();
 		}
 	}
 
-	private void initConfig()
-	{
-		//log.info("initConfig");
+	private void initConfig() {
+		// log.info("initConfig");
 
 		CC_Valid = config.filterType() == ClanChannelType.CLAN_CHAT || config.filterType() == ClanChannelType.BOTH_CHATS;
 		FC_Valid = config.filterType() == ClanChannelType.FRIENDS_CHAT || config.filterType() == ClanChannelType.BOTH_CHATS;
@@ -502,8 +503,7 @@ public class ClanEventAttendancePlugin extends Plugin
 		presentColorText = "#" + Integer.toHexString(config.presentColor().getRGB()).substring(2);
 		absentColorText = "#" + Integer.toHexString(config.absentColor().getRGB()).substring(2);
 
-		if (!attendanceBuffer.isEmpty())
-		{
+		if (!attendanceBuffer.isEmpty()) {
 			panel.setText(generateTextData(!eventRunning));
 		}
 
@@ -511,16 +511,14 @@ public class ClanEventAttendancePlugin extends Plugin
 		panel.init(config, this);
 	}
 
-	private String generateTextData(boolean finalDisplay)
-	{
-		//log.info("generateTextData");
+	private String generateTextData(boolean finalDisplay) {
+		// log.info("generateTextData");
 
 		StringBuilder activeSB = new StringBuilder();
 		StringBuilder inactiveSB = new StringBuilder();
 
 		// Split the members into 2 lists
-		for (String key : attendanceBuffer.keySet())
-		{
+		for (String key : attendanceBuffer.keySet()) {
 			MemberAttendance ma = attendanceBuffer.get(key);
 
 			if (ticksToSeconds(ma.ticksTotal) < config.presentThreshold())
@@ -532,10 +530,8 @@ public class ClanEventAttendancePlugin extends Plugin
 		StringBuilder attendanceString = new StringBuilder();
 		attendanceString.append("<html><body><pre>");
 
-		if (finalDisplay)
-		{
-			if (!config.listPrefix().isEmpty())
-			{
+		if (finalDisplay) {
+			if (!config.listPrefix().isEmpty()) {
 				attendanceString.append(config.listPrefix().replaceAll("(\r\n|\n\r|\r|\n)", "<br/>"));
 				attendanceString.append("<br/><br/>");
 			}
@@ -550,24 +546,19 @@ public class ClanEventAttendancePlugin extends Plugin
 		if (finalDisplay && config.discordMarkdown() && (config.outputFormat() == OutputFormat.TEXT))
 			attendanceString.append("```<br/>");
 
-		if(activeSB.length() > 0)
-		{
+		if (activeSB.length() > 0) {
 			attendanceString.append("Present Members<br/>");
 			attendanceString.append("------------------------------<br/>");
-			if (config.lateMembers())
-			{
+			if (config.lateMembers()) {
 				attendanceString.append(String.format("%-12s | %-6s | %-6s<br/>", "Name", "Time", "Late"));
-			}
-			else
-			{
+			} else {
 				attendanceString.append(String.format("%-12s | %-6s<br/>", "Name", "Time"));
 			}
 
 			attendanceString.append(activeSB);
 		}
 
-		if(inactiveSB.length() > 0)
-		{
+		if (inactiveSB.length() > 0) {
 			// Add spacing with previous list if any
 			if (activeSB.length() > 0)
 				attendanceString.append("<br/>");
@@ -578,12 +569,9 @@ public class ClanEventAttendancePlugin extends Plugin
 			attendanceString.append(")<br/>");
 
 			attendanceString.append("------------------------------<br/>");
-			if (config.lateMembers())
-			{
+			if (config.lateMembers()) {
 				attendanceString.append(String.format("%-12s | %-6s | %-6s<br/>", "Name", "Time", "Late"));
-			}
-			else
-			{
+			} else {
 				attendanceString.append(String.format("%-12s | %-6s<br/>", "Name", "Time"));
 			}
 
@@ -593,10 +581,8 @@ public class ClanEventAttendancePlugin extends Plugin
 		if (finalDisplay && config.discordMarkdown() && (config.outputFormat() == OutputFormat.TEXT))
 			attendanceString.append("```");
 
-		if (finalDisplay)
-		{
-			if (!config.listSuffix().isEmpty())
-			{
+		if (finalDisplay) {
+			if (!config.listSuffix().isEmpty()) {
 				attendanceString.append("<br/><br/>");
 				attendanceString.append(config.listSuffix().replaceAll("(\r\n|\n\r|\r|\n)", "<br/>"));
 			}
@@ -607,34 +593,30 @@ public class ClanEventAttendancePlugin extends Plugin
 		return attendanceString.toString();
 	}
 
-	private String memberAttendanceToString(MemberAttendance ma)
-	{
+	private String memberAttendanceToString(MemberAttendance ma) {
 		boolean isLate = ticksToSeconds(ma.ticksLate) > config.lateThreshold();
-		//white
+		// white
 		String lineColor = "#FFFFFF";
 		String ret;
 
-		if(eventRunning)
+		if (eventRunning)
 			lineColor = ma.isPresent ? presentColorText : absentColorText;
 
 		// config.lateMembers()
-		// ex: JoRouss      | 06:46  | 01:07  // isLate
-		// ex: SomeDude     | 236:46 | -      // !isLate
+		// ex: JoRouss | 06:46 | 01:07 // isLate
+		// ex: SomeDude | 236:46 | - // !isLate
 
 		// !config.lateMembers()
-		// ex: JoRouss      | 06:46
+		// ex: JoRouss | 06:46
 
-		if (config.lateMembers())
-		{
+		if (config.lateMembers()) {
 			ret = String.format("%s%-12s | %-6s | %-6s%s<br/>",
 					"<font color='" + lineColor + "'>",
 					ma.member.getName(),
 					timeFormat(ticksToSeconds(ma.ticksTotal)),
 					isLate ? timeFormat(ticksToSeconds(ma.ticksLate)) : "-",
 					"</font>");
-		}
-		else
-		{
+		} else {
 			ret = String.format("%s%-12s | %-6s%s<br/>",
 					"<font color='" + lineColor + "'>",
 					ma.member.getName(),
@@ -645,28 +627,54 @@ public class ClanEventAttendancePlugin extends Plugin
 		return ret;
 	}
 
-	private String timeFormat(int totalSeconds)
-	{
+	private String timeFormat(int totalSeconds) {
 		long minute = TimeUnit.SECONDS.toMinutes(totalSeconds);
 		long second = TimeUnit.SECONDS.toSeconds(totalSeconds) - (TimeUnit.SECONDS.toMinutes(totalSeconds) * 60);
 
-		if (minute > 99)
-		{
-			//ex: 118:26
+		if (minute > 99) {
+			// ex: 118:26
 			return String.format("%03d:%02d", minute, second);
 		}
 
-		//ex: 18:26
+		// ex: 18:26
 		return String.format("%02d:%02d", minute, second);
 	}
 
-	private int ticksToSeconds(int ticks)
-	{
-		return (int)(ticks * 0.6f);
+	private int ticksToSeconds(int ticks) {
+		return (int) (ticks * 0.6f);
 	}
 
-	private String nameToKey(String playerName)
-	{
+	private String nameToKey(String playerName) {
 		return Text.toJagexName(playerName).toLowerCase();
+	}
+
+	private void saveAttendanceToFile() {
+		if (currentEventFile == null) {
+			File dir = new File(RuneLite.RUNELITE_DIR, "clan-event-attendance");
+			if (!dir.exists()) {
+				dir.mkdirs();
+			}
+			String timestamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
+			currentEventFile = new File(dir, "attendance-" + timestamp + ".txt");
+		}
+
+		try (PrintWriter out = new PrintWriter(currentEventFile)) {
+			// Get text data, strip HTML for clean text file
+			String htmlContent = generateTextData(true);
+			String textContent = htmlContent
+					.replace("<html><body><pre>", "")
+					.replace("</pre></body></html>", "")
+					.replace("<br/>", System.lineSeparator())
+					.replaceAll("<[^>]+>", "");
+
+			// If discord markdown is enabled, the generation does wrapping.
+			// We might want raw text or keep it as is.
+			// Given it's a backup, keeping exact output format is usually best.
+
+			out.println(textContent);
+			// log.info("Saved attendance to " + file.getAbsolutePath());
+		} catch (Exception e) {
+			log.error("Failed to save attendance file", e);
+		}
 	}
 }
