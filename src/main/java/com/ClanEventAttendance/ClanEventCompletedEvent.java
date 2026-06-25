@@ -7,5 +7,5 @@ import lombok.Data;
 public class ClanEventCompletedEvent
 {
     private final List<String> attendeeNames;
-    private final long durationMs;
+    private final long durationTicks;
 }
