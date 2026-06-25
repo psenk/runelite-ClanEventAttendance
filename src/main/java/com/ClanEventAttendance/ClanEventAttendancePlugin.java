@@ -78,6 +78,9 @@ public class ClanEventAttendancePlugin extends Plugin {
 	@Inject
 	private ClanEventAttendanceConfig config;
 
+ @Inject
+ private EventBus eventBus;
+
 	private ClanEventAttendancePanel panel;
 	private NavigationButton navButton;
 
@@ -193,6 +196,10 @@ public class ClanEventAttendancePlugin extends Plugin {
 		if (config.saveLocally()) {
 			saveAttendanceToFile();
 		}
+
+  List<String> names = new  ArrayList<>(attendanceBuffer.keySet());
+  int duration = eventStoppedAt - eventStartedAt;
+  eventBus.post(new ClanEventCompletedEvent(names, duration));
 	}
 
 	private boolean IsValid(Player player, boolean validateCC, boolean validateFC) {
